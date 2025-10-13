@@ -28,7 +28,9 @@ const SHEET_NAME = process.env.SHEET_NAME || "Sheet1";
 
 if (!SHEET_ID) {
   // Do not throw at module-load time so imports don't crash tests — functions will guard.
-  console.warn("⚠️ googleSheets: SHEET_ID / SPREADSHEET_ID env var is not set.");
+  console.warn(
+    "⚠️ googleSheets: SHEET_ID / SPREADSHEET_ID env var is not set."
+  );
 }
 
 /**
@@ -48,7 +50,7 @@ function createSheetsClient() {
 
   // Otherwise use service-account fields from env (recommended for Render)
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-  let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY || "";
 
   if (!clientEmail || !privateKey) {
     // We'll allow creation but later functions will check and throw a clear error.
@@ -60,8 +62,31 @@ function createSheetsClient() {
 
   // When private key is stored in env make sure we convert escaped newlines to real ones
   if (privateKey) {
-    privateKey = privateKey.replace(/\\n/g, "\n");
+    privateKey = privateKey.replace(/\\n/g, "\n").replace(/\r/g, "").trim();
   }
+
+  // Basic shape check (does it look like a PEM block?)
+  const looksLikePem =
+    /^-----BEGIN PRIVATE KEY-----\n[\s\S]+?\n-----END PRIVATE KEY-----\n?$/.test(
+      privateKey
+    );
+
+  if (!looksLikePem) {
+    console.error(
+      "googleSheets: private key PEM format invalid. Check GOOGLE_PRIVATE_KEY env (must contain '-----BEGIN PRIVATE KEY-----' and escaped \\n)."
+    );
+    // throw or return a meaningful error so your handler doesn't fail with OpenSSL nonsense
+    throw new Error(
+      "Server misconfigured: invalid Google private key format (GOOGLE_PRIVATE_KEY)."
+    );
+  }
+
+  // Optional small safe debug: show first/last 30 chars (masked) so you can confirm formatting without exposing secret
+  const start = privateKey.slice(0, 30).replace(/[^-A-Za-z0-9]/g, "");
+  const end = privateKey.slice(-30).replace(/[^-A-Za-z0-9]/g, "");
+  console.log(
+    `googleSheets: privateKey preview start="${start}..." end="...${end}"`
+  );
 
   const auth = new google.auth.JWT({
     email: clientEmail,
@@ -77,13 +102,17 @@ const sheets = createSheetsClient();
 /** Internal guard to ensure sheet id and auth are configured */
 function ensureConfig() {
   if (!SHEET_ID) {
-    const err = new Error("Server misconfigured: missing SHEET_ID / SPREADSHEET_ID environment variable.");
+    const err = new Error(
+      "Server misconfigured: missing SHEET_ID / SPREADSHEET_ID environment variable."
+    );
     err.code = "MISSING_SHEET_ID";
     throw err;
   }
 
   const hasAuthFile = !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const hasEnvCreds = !!(process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY);
+  const hasEnvCreds = !!(
+    process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY
+  );
 
   if (!hasAuthFile && !hasEnvCreds) {
     const err = new Error(
@@ -162,7 +191,10 @@ export async function appendRow(rowArray) {
     // You can optionally return res.data for caller if needed
     return res.data;
   } catch (err) {
-    console.error("googleSheets.appendRow error:", err.errors || err.message || err);
+    console.error(
+      "googleSheets.appendRow error:",
+      err.errors || err.message || err
+    );
     throw err;
   }
 }
